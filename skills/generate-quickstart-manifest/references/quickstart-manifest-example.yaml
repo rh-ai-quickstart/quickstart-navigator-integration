@@ -1,0 +1,451 @@
+# yaml-language-server: $schema=quickstart-manifest.schema.json
+#
+# EXAMPLE: Peoplemesh Quickstart Manifest
+# ============================================================================
+# This is a complete, working example. Use it as a reference for structure,
+# field naming, and the level of detail expected in each section.
+#
+# GUIDANCE COMMENTS are prefixed with "# GUIDE:" — these explain what each
+# section is for and how to adapt it. Remove them from the generated manifest.
+# ============================================================================
+
+# GUIDE: apiVersion and kind are fixed values — do not change.
+apiVersion: quickstart.redhat.com/v1
+kind: Quickstart
+
+# GUIDE: metadata identifies the quickstart in the Navigator catalog.
+# - name: DNS-compatible identifier (lowercase, hyphens only)
+# - displayName: What users see in the catalog
+# - shortDescription: Must be under 160 chars — shown on catalog tiles
+# - longDescription: Full description — can be multi-line
+# - version: Semantic version of the quickstart release
+metadata:
+  name: peoplemesh
+  displayName: "Deploy AI-Powered Talent Discovery with Semantic Search"
+  shortDescription: "Learn to build semantic search that finds talent by meaning, not keywords, using Keycloak, Docling, and embeddings on OpenShift."
+  longDescription: |
+    This quickstart deploys Peoplemesh, an AI-powered talent discovery platform that uses
+    semantic search and vector embeddings to understand the meaning behind searches, not just keywords.
+
+    Organizations struggle to connect the right people with the right opportunities. Traditional
+    directory searches rely on exact keyword matches, missing talented individuals whose skills
+    are described differently. Peoplemesh leverages Docling (IBM Research) for intelligent
+    document parsing, Red Hat build of Keycloak for enterprise authentication, and pgvector
+    for semantic search.
+  version: "1.0.0"
+  repository: "https://github.com/rh-ai-quickstart/peoplemesh"
+  maintainer:
+    name: "Red Hat AI Quickstarts Team"
+    email: "ai-quickstarts@redhat.com"
+  license: "Apache-2.0"
+  lastUpdated: "2026-06-29T00:00:00Z"
+
+# GUIDE: versioning is optional for v1.0.0 quickstarts. Include it if you
+# plan to support upgrades from older versions. The installerImageTag must
+# match metadata.version.
+versioning:
+  upgradePaths:
+    - from: "0.9.0"
+      to: "1.0.0"
+      notes: |
+        Major upgrade:
+        - Database schema migration required (adds vector search columns)
+        - Keycloak operator minimum version raised to 24.0
+        - New required parameter: peoplemesh.security.oauthStateSecret
+      estimatedTime: "20m"
+      reversible: false
+      requiresDataBackup: true
+      requiresDataMigration: true
+      requiresManualSteps: false
+  installerImageTag: "1.0.0"
+
+# GUIDE: classification drives catalog search and filtering.
+# - industries/useCases: What business problems does this solve?
+# - aiCapabilities: Only include if the quickstart involves AI/ML
+# - technologies: List key components with their role and partner
+# - tags: Searchable keywords (lowercase, hyphenated)
+# - estimatedDeploymentTime: In minutes — be realistic, include operator install time
+classification:
+  industries:
+    - "Media and IT Services"
+    - "Human Resources"
+    - "Professional Services"
+  useCases:
+    - "Talent Discovery"
+    - "Skills Management"
+    - "Team Building"
+    - "Knowledge Management"
+    - "HR Analytics"
+  aiCapabilities:
+    - "Semantic Search"
+    - "Vector Embeddings"
+    - "Document Understanding"
+    - "Natural Language Processing"
+    - "Retrieval-Augmented Generation (RAG)"
+  technologies:
+    - name: "Red Hat build of Keycloak"
+      role: "Enterprise Authentication"
+      partner: "Red Hat"
+    - name: "Docling"
+      role: "Document Parsing"
+      partner: "IBM Research"
+    - name: "pgvector"
+      role: "Vector Database"
+      partner: "Community"
+    - name: "Ollama"
+      role: "Local LLM Runtime"
+      partner: "Community"
+    - name: "Quarkus"
+      role: "Backend Framework"
+      partner: "Red Hat"
+  tags:
+    - "vector-search"
+    - "semantic-search"
+    - "llm"
+    - "rag"
+    - "oidc"
+    - "keycloak"
+    - "document-ai"
+    - "embeddings"
+    - "talent-management"
+  estimatedDeploymentTime: 15
+
+# GUIDE: prerequisites lists what the cluster needs before deployment.
+# - operators: Set autoInstalled: true if the quickstart installs it
+# - resources: Derive from Helm values.yaml — sum requests across all pods
+#   for minimum, add headroom for recommended
+# - storageClasses: Use "any-rwo" if any RWO class works
+prerequisites:
+  openshift:
+    minimumVersion: "4.12"
+    tested:
+      - "4.12"
+      - "4.13"
+      - "4.14"
+      - "4.15"
+  operators:
+    - name: "Red Hat build of Keycloak Operator"
+      namespace: "target"
+      minimumVersion: "26.6.4-opr.1"
+      required: true
+      autoInstalled: true
+      installationHint: "Automatically installed by quickstart installer (must be available in redhat-operators catalog)"
+    - name: "NVIDIA GPU Operator"
+      namespace: "cluster"
+      required: false
+      installationHint: "Required for GPU acceleration (optional - provides 10-20x speedup for LLM inference and document processing)"
+  resources:
+    minimum:
+      cpu: "4"
+      memory: "16Gi"
+      storage: "100Gi"
+    recommended:
+      cpu: "8"
+      memory: "32Gi"
+      storage: "150Gi"
+      gpu:
+        count: 1
+        memory: "16Gi"
+  storageClasses:
+    - name: "any-rwo"
+      accessModes:
+        - "ReadWriteOnce"
+      minimumSize: "10Gi"
+      usage: "PostgreSQL persistent volumes"
+  externalServices:
+    - name: "OpenAI API"
+      required: false
+      purpose: "External LLM provider (alternative to local Ollama)"
+      configurationHint: "Provide OpenAI API key to use GPT models instead of local Granite"
+    - name: "Google OAuth"
+      required: false
+      purpose: "Google authentication provider"
+      configurationHint: "Configure Google OAuth credentials for Google login"
+    - name: "Microsoft OAuth"
+      required: false
+      purpose: "Microsoft authentication provider"
+      configurationHint: "Configure Microsoft OAuth credentials for Microsoft login"
+
+# GUIDE: deployment tells Navigator how to run the installer.
+# - supportedActions: Only list actions the installer handles
+# - supportedModes: DEMO, PRODUCTION, or both
+# - installer.rbac: The EXACT RBAC artifacts Navigator must create
+#   This section is critical — Navigator reads it to create permissions
+# - quickstartResources: What the quickstart deploys (for catalog display)
+deployment:
+  supportedActions:
+    - "CHECK_PRE_REQS"
+    - "STATUS"
+    - "INSTALL"
+    - "UNINSTALL_DELETE_ALL"
+    - "UNINSTALL_KEEP_DATA"
+  supportedModes:
+    - "DEMO"
+  installer:
+    image: "quay.io/rh-ai-quickstart/peoplemesh-installer:1.0.0"
+    command: ["/installer/entrypoint.sh"]
+    requiredEnv:
+      - "TARGET_NAMESPACE"
+      - "ACTION"
+      - "INSTALL_MODE"
+    rbac:
+      serviceAccount:
+        name: "peoplemesh-installer"
+        namespace: "default"
+      defaultNamespaceRole:
+        name: "peoplemesh-installer"
+        namespace: "default"
+        rules:
+          - apiGroups: [""]
+            resources: ["pods", "configmaps"]
+            verbs: ["get", "list", "watch"]
+          - apiGroups: ["batch"]
+            resources: ["jobs"]
+            verbs: ["get", "list", "watch"]
+      defaultNamespaceRoleBinding:
+        name: "peoplemesh-installer"
+        namespace: "default"
+        roleRef:
+          kind: "Role"
+          name: "peoplemesh-installer"
+        subjects:
+          - kind: "ServiceAccount"
+            name: "peoplemesh-installer"
+            namespace: "default"
+      clusterRole:
+        name: "peoplemesh-installer-${TARGET_NAMESPACE}"
+        rules:
+          - apiGroups: [""]
+            resources: ["nodes"]
+            verbs: ["get", "list"]
+          - apiGroups: ["storage.k8s.io"]
+            resources: ["storageclasses"]
+            verbs: ["get", "list"]
+          - apiGroups: ["config.openshift.io"]
+            resources: ["clusterversions"]
+            verbs: ["get", "list"]
+          - apiGroups: ["apiextensions.k8s.io"]
+            resources: ["customresourcedefinitions"]
+            verbs: ["get", "list"]
+          - apiGroups: ["packages.operators.coreos.com"]
+            resources: ["packagemanifests"]
+            verbs: ["get", "list"]
+          - apiGroups: [""]
+            resources: ["namespaces"]
+            verbs: ["get", "list", "create", "delete"]
+          - apiGroups: [""]
+            resources: ["pods", "services", "secrets", "configmaps", "persistentvolumeclaims", "serviceaccounts"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["apps"]
+            resources: ["deployments", "statefulsets", "replicasets"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["route.openshift.io"]
+            resources: ["routes"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["k8s.keycloak.org"]
+            resources: ["keycloaks", "keycloakrealmimports"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["batch"]
+            resources: ["jobs"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["operators.coreos.com"]
+            resources: ["clusterserviceversions", "subscriptions", "operatorgroups"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+          - apiGroups: ["rbac.authorization.k8s.io"]
+            resources: ["roles", "rolebindings"]
+            verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+      clusterRoleBinding:
+        name: "peoplemesh-installer-${TARGET_NAMESPACE}"
+        roleRef:
+          kind: "ClusterRole"
+          name: "peoplemesh-installer-${TARGET_NAMESPACE}"
+        subjects:
+          - kind: "ServiceAccount"
+            name: "peoplemesh-installer"
+            namespace: "default"
+  defaultNamespace: "peoplemesh-quickstart"
+  quickstartResources:
+    namespaceScoped:
+      - apiGroups: [""]
+        resources: ["pods", "services", "secrets", "configmaps", "persistentvolumeclaims", "serviceaccounts"]
+        description: "Core application resources (Peoplemesh backend, Keycloak, databases)"
+      - apiGroups: ["apps"]
+        resources: ["deployments", "statefulsets"]
+        description: "Application workloads and databases"
+      - apiGroups: ["route.openshift.io"]
+        resources: ["routes"]
+        description: "Application ingress (Peoplemesh UI, Keycloak console)"
+      - apiGroups: ["k8s.keycloak.org"]
+        resources: ["keycloaks", "keycloakrealmimports"]
+        description: "Keycloak instance and realm configuration"
+      - apiGroups: ["operators.coreos.com"]
+        resources: ["subscriptions", "operatorgroups", "clusterserviceversions"]
+        description: "Keycloak operator subscription (namespace-scoped)"
+
+# GUIDE: parameters lists what the user can configure.
+# - secrets: Passwords, API keys — things that must be provided
+# - configuration: Feature flags, options — things with sensible defaults
+# - llmGuidance: Tells the Navigator LLM how to ask about this parameter
+parameters:
+  secrets:
+    - name: "keycloak.realm.testUser.password"
+      displayName: "Test User Password"
+      description: "Password for default test user (testuser@example.com)"
+      type: "password"
+      required: true
+      llmGuidance: "REQUIRED - Password for test user login. Must be secure (no default allowed). User will log in with username 'testuser@example.com' and this password. Always ask for this - never auto-generate or use a default value."
+  configuration:
+    - name: "ollama.gpu.enabled"
+      displayName: "Enable GPU for Ollama"
+      description: "Use GPU acceleration for LLM inference (10-20x faster). Requires NVIDIA GPU Operator."
+      type: "boolean"
+      required: false
+      default: false
+      llmGuidance: "Only enable if cluster has NVIDIA GPUs with 16GB+ VRAM. Provides 10-20x speedup for resume processing. Ask user about GPU availability."
+    - name: "docling.gpu.enabled"
+      displayName: "Enable GPU for Docling"
+      description: "Use GPU acceleration for document processing (10-20x faster). Requires NVIDIA GPU Operator."
+      type: "boolean"
+      required: false
+      default: false
+      llmGuidance: "Only enable if cluster has NVIDIA GPUs. Same GPU can be used for both ollama and docling."
+    - name: "peoplemesh.organization.name"
+      displayName: "Organization Name"
+      description: "Your organization name (shown in UI and legal pages)"
+      type: "string"
+      required: false
+      llmGuidance: "Only ask if user mentions customization. Optional field, can be left empty."
+    - name: "peoplemesh.organization.contactEmail"
+      displayName: "Contact Email"
+      description: "Contact email shown in legal pages"
+      type: "string"
+      required: false
+      llmGuidance: "Only ask if user mentions customization. Optional field, can be left empty."
+
+# GUIDE: status tells Navigator how to poll the quickstart's health.
+# - endpoint.path: A URL path on the quickstart's main route
+# - responseFormat.schema: What the response looks like
+# - pollingInterval/timeout: How aggressively to poll
+status:
+  endpoint:
+    path: "/api/v1/quickstart/status"
+    description: "Returns current operational status of the quickstart"
+  responseFormat:
+    schema:
+      type: "object"
+      properties:
+        status:
+          type: "string"
+          enum: ["INSTALLING", "UPDATING", "READY", "DEGRADED", "ERROR", "UNINSTALLING"]
+          description: "Current operational status"
+        description:
+          type: "string"
+          description: "Human-readable status message (what's happening or what's wrong)"
+        version:
+          type: "string"
+          description: "Currently deployed version"
+        timestamp:
+          type: "string"
+          format: "date-time"
+          description: "ISO 8601 timestamp of this status report"
+      required: ["status", "description", "version", "timestamp"]
+    example:
+      READY: |
+        {
+          "status": "READY",
+          "description": "All components operational",
+          "version": "1.0.0",
+          "timestamp": "2026-07-06T12:34:56Z"
+        }
+      ERROR: |
+        {
+          "status": "ERROR",
+          "description": "Keycloak database not responding",
+          "version": "1.0.0",
+          "timestamp": "2026-07-06T12:40:18Z"
+        }
+  pollingInterval: "10s"
+  timeout: "15m"
+
+# GUIDE: access describes how users interact with the deployed quickstart.
+# - endpoints: Routes/services users can access
+# - defaultCredentials: Pre-created accounts for testing
+access:
+  endpoints:
+    - name: "main"
+      displayName: "Peoplemesh Application"
+      type: "route"
+      path: "/"
+      description: "Main application UI"
+      public: true
+      authentication: "required"
+    - name: "keycloak-admin"
+      displayName: "Keycloak Admin Console"
+      type: "route"
+      path: "/admin"
+      description: "Keycloak administration console"
+      public: false
+      authentication: "admin"
+      credentialsSecret: "keycloak-admin-secret"
+  defaultCredentials:
+    - name: "Test User"
+      username: "testuser@example.com"
+      passwordParameter: "keycloak.realm.testUser.password"
+      description: "Pre-configured test user for trying the application"
+      roles: ["user"]
+    - name: "Keycloak Admin"
+      username: "admin"
+      passwordSecret: "keycloak-admin-secret"
+      passwordKey: "password"
+      description: "Keycloak administrator account"
+      roles: ["admin"]
+
+# GUIDE: cleanup tells users what they're about to lose.
+cleanup:
+  dataDescription: |
+    This quickstart stores the following data:
+    - User profiles and uploaded resumes (pgvector database)
+    - Search history and analytics (pgvector database)
+    - Keycloak users and configuration (keycloak database)
+    - Downloaded LLM models (can be re-downloaded if needed)
+  warning: |
+    Choose uninstall mode:
+
+    uninstall_delete_all:
+      Removes all quickstart resources AND data volumes.
+      This permanently deletes user profiles, resumes, and configuration.
+      Cannot be undone.
+
+    uninstall_keep_data:
+      Removes quickstart but preserves data volumes.
+      You can reinstall later and your data will still be there.
+
+# GUIDE: documentation links. Use full URLs. Add any guides relevant to your quickstart.
+documentation:
+  readme: "https://github.com/rh-ai-quickstart/peoplemesh-quickstart/blob/main/README.md"
+  installGuide: "https://github.com/rh-ai-quickstart/peoplemesh-quickstart/blob/main/INSTALL.md"
+  gpuSetupGuide: "https://github.com/rh-ai-quickstart/peoplemesh-quickstart/blob/main/GPU-SETUP.md"
+
+# GUIDE: llmContext helps the Navigator LLM decide when and how to recommend
+# this quickstart. Write in natural language.
+llmContext:
+  whenToRecommend: |
+    Recommend this quickstart when users mention:
+    - Finding people/talent by skills or experience
+    - Building a talent directory or skills database
+    - Semantic search for people/profiles
+    - Resume parsing or CV processing
+    - Team building or staffing projects
+    - HR tech or talent management
+    - Employee skills tracking
+  faq:
+    - question: "Does this work without a GPU?"
+      answer: "Yes. CPU-only mode works but resume processing takes 2-3 minutes per upload. With GPU, it completes in 10-20 seconds."
+    - question: "Can I use my own LLM instead of Ollama?"
+      answer: "Yes. Set peoplemesh.llm.mode to 'external' and provide an OpenAI API key (or OpenAI-compatible endpoint)."
+    - question: "What authentication providers are supported?"
+      answer: "Keycloak is included by default. You can optionally enable Google and Microsoft OAuth by providing OAuth credentials."
+    - question: "How much storage does this need?"
+      answer: "Minimum 100GB (50GB for models, 50GB for databases). Recommended 150GB if using GPU acceleration."
+    - question: "Can I customize the branding?"
+      answer: "Yes. Set peoplemesh.organization.name and peoplemesh.organization.contactEmail to customize the UI and legal pages."

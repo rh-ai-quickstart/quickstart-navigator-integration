@@ -1,0 +1,9 @@
+{
+  "name": "navigator",
+  "version": "1.0.0",
+  "description": "Skills for retrofitting OpenShift quickstarts with standardized Navigator-compatible installers and machine-readable manifests.",
+  "author": {
+    "name": "Red Hat AI Quickstarts Team",
+    "email": "ai-quickstarts@redhat.com"
+  }
+}
