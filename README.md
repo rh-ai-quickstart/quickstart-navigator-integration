@@ -47,26 +47,59 @@ Generates a `quickstart-manifest.yaml` — the machine-readable metadata file th
 
 ### Installation
 
-Add the marketplace source to your `~/.claude/settings.json`:
+**Step 1: Register the marketplace source**
+
+Add the marketplace entry to your `~/.claude/settings.json`. If the file already has content, merge the `extraKnownMarketplaces` and `enabledPlugins` entries into the existing JSON:
 
 ```json
 {
   "extraKnownMarketplaces": {
     "quickstart-navigator": {
       "source": {
-        "source": "git",
-        "url": "https://github.com/rh-ai-quickstart/quickstart-navigator-integration.git"
+        "source": "github",
+        "repo": "rh-ai-quickstart/quickstart-navigator-integration"
       }
     }
+  },
+  "enabledPlugins": {
+    "navigator@quickstart-navigator": true
   }
 }
 ```
 
-If you already have other marketplace sources, add the `quickstart-navigator` entry alongside them.
+**Step 2: Restart Claude Code**
 
-Then install the plugin through Claude Code. The skills will be available as:
+Close and reopen Claude Code (or start a new session). On startup, it will clone the marketplace repo, cache the plugin, and load the skills.
+
+**Step 3: Verify**
+
+The skills should appear in your available skills list. You can invoke them with:
 - `/navigator:retrofit-quickstart-installer`
 - `/navigator:generate-quickstart-manifest`
+
+### Troubleshooting
+
+If the skills don't appear after restart:
+
+1. **Check marketplace was cloned**: Look for files under `~/.claude/plugins/marketplaces/quickstart-navigator/`
+2. **Check plugin was cached**: Look for files under `~/.claude/plugins/cache/quickstart-navigator/navigator/`
+3. **Check install record**: Read `~/.claude/plugins/installed_plugins.json` — it should have a `navigator@quickstart-navigator` entry
+4. **If cache is empty but marketplace exists**: Copy the plugin manually:
+   ```bash
+   VERSION=$(jq -r '.plugins["navigator@quickstart-navigator"][0].version' ~/.claude/plugins/installed_plugins.json)
+   mkdir -p ~/.claude/plugins/cache/quickstart-navigator/navigator/$VERSION
+   cp -R ~/.claude/plugins/marketplaces/quickstart-navigator/navigator/ \
+         ~/.claude/plugins/cache/quickstart-navigator/navigator/$VERSION/
+   ```
+   Then restart Claude Code again.
+
+### Updating
+
+The plugin updates automatically when Claude Code starts a new session. To force an update, delete the cache and restart:
+
+```bash
+rm -rf ~/.claude/plugins/cache/quickstart-navigator
+```
 
 ## Usage
 
@@ -153,7 +186,7 @@ Installer results are stored in three places with decreasing ephemerality:
 
 ### Manifest Schema
 
-The `quickstart-manifest.yaml` conforms to `quickstart.redhat.com/v1`. The JSON Schema is included in this repo at `skills/generate-quickstart-manifest/references/quickstart-manifest.schema.json` and is copied into each quickstart project for IDE validation.
+The `quickstart-manifest.yaml` conforms to `quickstart.redhat.com/v1`. The JSON Schema is included in this repo at `navigator/skills/generate-quickstart-manifest/references/quickstart-manifest.schema.json` and is copied into each quickstart project for IDE validation.
 
 Top-level sections:
 
@@ -180,5 +213,5 @@ The [peoplemesh quickstart](https://github.com/rh-ai-quickstart/peoplemesh) is t
 To update the skills or templates:
 
 1. Clone this repo
-2. Edit files under `skills/`
+2. Edit files under `navigator/skills/`
 3. Commit and push — engineers will get updates on next plugin install/update
