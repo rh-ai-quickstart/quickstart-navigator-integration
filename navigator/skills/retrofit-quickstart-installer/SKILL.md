@@ -116,10 +116,19 @@ For each supported action, create a lib script that wraps the existing deploymen
 
 Use `oc` commands with `2>/dev/null || true` to handle missing resources gracefully under `set -euo pipefail`.
 
+**Important patterns for check_pre_reqs.sh:**
+
+- **CPU millicore handling**: Node allocatable CPU may be in millicores (e.g., `8000m`) or whole cores. Always handle both: `if test("m$") then (gsub("m$";"") | tonumber / 1000) else tonumber end`. Round the final sum with `| round`.
+- **Memory unit conversion**: Memory from `status.allocatable` is in Ki. Convert to GiB by dividing by 1048576 and round the result.
+- **Operator detection via CRDs**: Detect operators via CRD existence (`oc get crd <crd-name>`) rather than CSV listing (`oc get csv -A | grep`). CSV listing requires `operators.coreos.com` read permissions in the ClusterRole, which the installer may not have. CRD checks work with the existing `apiextensions.k8s.io` permissions.
+- **GPU taint reporting**: If the quickstart uses GPUs, report detected NoSchedule taint keys on GPU nodes so users get early visibility into potential scheduling issues.
+
 **`install.sh`** — Must:
 - Create the target namespace if it doesn't exist
 - Invoke the existing deployment mechanism (helm install, make install, apply manifests, etc.)
 - NOT create RBAC — the ClusterRole already covers all namespaces
+
+**GPU taint auto-detection (for GPU quickstarts):** If the quickstart deploys GPU workloads, add a `detect_gpu_tolerations` function that queries GPU nodes for NoSchedule taint keys and builds a JSON array of toleration objects. Fall back to `nvidia.com/gpu` if no taints are found. Accept an override via `GPU_TOLERATIONS` env var. Convert the JSON to Helm `--set` flags using indexed notation (e.g., `--set gpuTolerations[0].key=nvidia.com/gpu --set gpuTolerations[0].effect=NoSchedule --set gpuTolerations[0].operator=Exists`).
 
 **`uninstall.sh`** — Must handle both modes:
 - `delete-all`: Remove everything including PVCs and namespace
@@ -133,6 +142,8 @@ Use `oc` commands with `2>/dev/null || true` to handle missing resources gracefu
 - Report pod status (ready/running/total)
 - Check application health endpoints
 - Work for both installed and uninstalled states (report clean state if nothing exists)
+
+**grep + pipefail safety**: When using `grep` in pipelines under `set -euo pipefail`, wrap with `{ grep PATTERN || true; }` to prevent exit code 1 (no matches) from killing the script. Example: `failed=$(echo "$pods" | { grep -E "Error|CrashLoopBackOff" || true; } | wc -l | tr -d ' ')`
 
 **`upgrade.sh`** — If unsupported, create a stub that sources nothing and defines no functions (the entrypoint will reject UPGRADE before calling anything).
 
@@ -167,13 +178,20 @@ Using the build template, replace:
 
 Using the deploy template, adapt:
 - Replace `{{QUICKSTART_NAME}}` placeholders
+- Replace `{{SHORT_NAME}}` with an abbreviated name (max ~20 chars) to keep Job names under the 63-character Kubernetes label limit. For example, `lemonade-stand-assistant` → `lsa`, `peoplemesh` → `peoplemesh`.
 - Adjust the ClusterRole rules to match what THIS quickstart's installer needs:
   - Cluster-scoped read permissions (always: nodes, storageclasses, clusterversions, CRDs, packagemanifests)
   - Namespace management (always: namespaces get/list/create/delete)
   - Namespace-scoped resources (quickstart-specific: what resources does it create?)
+  - Always include `replicasets` alongside `deployments` and `statefulsets` in the `apps` API group — Helm's `--wait` checks ReplicaSet readiness
   - RBAC if the quickstart's helm charts include Role/RoleBinding resources
 - Wire up the correct environment variables for each action (install needs params, status/check_pre_reqs don't)
 - Add cases for all supported actions in the main case statement
+
+**Important patterns for deploy.sh:**
+
+- **GPU taint override prompt**: If the quickstart uses GPUs, add an interactive prompt in the `install` case for GPU taint key override. Allow comma-separated keys or auto-detect. Convert keys to a JSON toleration array and pass as `GPU_TOLERATIONS` env var.
+- **Shell compatibility**: Do not use bash4-only syntax like `${VAR,,}` for case conversion. Use explicit `== "y" || == "Y"` comparisons instead, since deploy.sh may be run from zsh or other POSIX-compatible shells.
 
 ### Step 9: Verify
 

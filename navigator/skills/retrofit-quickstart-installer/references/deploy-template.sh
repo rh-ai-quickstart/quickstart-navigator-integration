@@ -8,6 +8,7 @@
 #
 # Replace all {{PLACEHOLDER}} values:
 # {{QUICKSTART_NAME}}   — e.g., "peoplemesh"
+# {{SHORT_NAME}}        — abbreviated name for Job labels, max ~20 chars (e.g., "peoplemesh", "lsa")
 # {{REGISTRY}}          — e.g., "quay.io/rh-ai-quickstart"
 # {{IMAGE_NAME}}        — e.g., "peoplemesh-installer"
 # {{VERSION}}           — e.g., "1.0.0"
@@ -140,7 +141,9 @@ RBAC
   # Create and monitor the Job
   # --------------------------------------------------------------------------
 
-  local JOB_NAME="{{QUICKSTART_NAME}}-installer-$(echo $ACTION | tr '[:upper:]' '[:lower:]' | tr '_' '-')-$(date +%s)"
+  local ACTION_SHORT=$(echo $ACTION | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+  local TIMESTAMP=$(date +%s | tail -c 7)
+  local JOB_NAME="{{SHORT_NAME}}-installer-${ACTION_SHORT}-${TIMESTAMP}"
 
   info "Creating installer Job: $JOB_NAME"
   info "Action: $ACTION"

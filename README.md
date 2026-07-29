@@ -137,9 +137,35 @@ Open your quickstart project in Claude Code and run:
 
 The skill will scan your Helm charts and scripts, then walk you through each manifest section. After generation, verify in VS Code — the schema reference enables autocomplete and validation.
 
-### Recommended Order
+### Recommended Workflow
 
-Run the manifest skill first if you want the installer to reference the manifest. Run the installer skill first if you want to test deployment before documenting metadata. Either order works — the skills are independent.
+The full end-to-end flow for Navigator-enabling a quickstart:
+
+1. **Generate manifest** — `/navigator:generate-quickstart-manifest` scans your repo and interviews you to produce `quickstart-manifest.yaml`
+2. **Generate installer** — `/navigator:retrofit-quickstart-installer` creates the containerized installer that wraps your deployment mechanism
+3. **Build the image** — `./installer/build.sh push` builds and pushes the installer container
+4. **Test on a live cluster** — Run all four actions and verify each one:
+   ```bash
+   ./installer/deploy.sh check_pre_reqs <namespace>
+   ./installer/deploy.sh install <namespace>
+   ./installer/deploy.sh status <namespace>
+   ./installer/deploy.sh uninstall_delete_all <namespace>
+   ```
+5. **Fix and iterate** — Rebuild (`./installer/build.sh push`) and retest after each fix
+
+Test on the same OpenShift and RHOAI version you plan to support — API behavior and CRD availability vary across versions.
+
+### Common Pitfalls
+
+These patterns have caused issues in real quickstart deployments:
+
+- **Job name exceeds 63 characters** — Kubernetes labels are capped at 63 chars. Long quickstart names combined with action names like `uninstall-delete-all` and a full Unix timestamp can exceed this. The deploy template uses `{{SHORT_NAME}}` (max ~20 chars) to keep names short.
+- **grep exits with code 1 under pipefail** — `grep` returns exit code 1 when no lines match. Under `set -euo pipefail`, this kills the script. Wrap with `{ grep PATTERN || true; }`.
+- **CPU reported in millicores** — Node allocatable CPU may be `8000m` instead of `8`. Always handle both formats in jq.
+- **Operator detection needs extra RBAC** — `oc get csv -A | grep` requires `operators.coreos.com` permissions. Detect operators via CRD existence instead (`oc get crd <crd-name>`).
+- **GPU pods fail to schedule** — Cluster admins use custom taint keys on GPU nodes (not just `nvidia.com/gpu`). Auto-detect taint keys and let users override.
+- **Helm --wait needs replicasets permission** — Always include `replicasets` in the `apps` API group alongside `deployments` and `statefulsets`.
+- **Shell compatibility** — Avoid bash4-only syntax like `${VAR,,}`. Use `== "y" || == "Y"` comparisons for portability across bash/zsh.
 
 ## Architecture
 
