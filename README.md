@@ -166,6 +166,7 @@ These patterns have caused issues in real quickstart deployments:
 - **GPU pods fail to schedule** — Cluster admins use custom taint keys on GPU nodes (not just `nvidia.com/gpu`). Auto-detect taint keys and let users override.
 - **Helm --wait needs replicasets permission** — Always include `replicasets` in the `apps` API group alongside `deployments` and `statefulsets`.
 - **Shell compatibility** — Avoid bash4-only syntax like `${VAR,,}`. Use `== "y" || == "Y"` comparisons for portability across bash/zsh.
+- **Helm `--set` mangles string values with spaces or commas** — Free-text parameters (names, org/display names like `organization.name="Red Hat"`) fail with plain `--set`: Helm type-coerces the value and, worse, treats commas as multi-value delimiters so `"Red Hat, Inc."` splits into bogus assignments. Use `--set-string`, backslash-escape literal commas (`value="${value//,/\\,}"`), quote the whole `key=value` token, and build flags as a bash array — not a space-joined string. For anything complex, prefer a generated `-f values.yaml` file.
 
 ## Architecture
 

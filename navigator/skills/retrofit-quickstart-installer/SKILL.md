@@ -37,6 +37,15 @@ Every installer MUST implement these patterns exactly. Do not skip or simplify t
 3. **EXIT trap ordering** — Close tee pipes, flush, write termination message + Job annotation, run cleanup, write log ConfigMap LAST
 4. **Job polling** — deploy.sh must poll for BOTH Complete and Failed conditions (never use `oc wait --for=condition=complete` alone — it hangs on failure)
 5. **RBAC model** — deploy.sh creates all RBAC (SA + Role + RoleBinding in default, ClusterRole + ClusterRoleBinding). Installer uses ClusterRole permissions. deploy.sh cleans up all RBAC after Job completes.
+6. **Shell compatibility** — Client-side scripts (`deploy.sh`, `build.sh`) run on the engineer's workstation, which may be macOS (Bash 3.2), Linux, or zsh. These scripts MUST use only POSIX-compatible and Bash 3.x-compatible syntax. Container-side scripts (`entrypoint.sh`, `lib/*.sh`) run inside the UBI9 container (Bash 5) and may use modern Bash features. Prohibited constructs in client-side scripts (with alternatives):
+   | Bash 4+ construct | Alternative |
+   |---|---|
+   | `${VAR,,}` / `${VAR^^}` (case conversion) | `echo "$VAR" \| tr '[:upper:]' '[:lower:]'` or explicit comparisons `== "y" \|\| == "Y"` |
+   | `declare -A` (associative arrays) | Use indexed arrays or separate variables |
+   | `readarray` / `mapfile` | `while IFS= read -r line; do arr+=("$line"); done` |
+   | `${VAR@Q}` (quoting operator) | `printf '%q' "$VAR"` |
+   | `\|&` (pipe stderr shorthand) | `2>&1 \|` |
+   | `&>>` (append redirect both) | `>> file 2>&1` |
 
 ## Workflow
 
@@ -121,14 +130,38 @@ Use `oc` commands with `2>/dev/null || true` to handle missing resources gracefu
 - **CPU millicore handling**: Node allocatable CPU may be in millicores (e.g., `8000m`) or whole cores. Always handle both: `if test("m$") then (gsub("m$";"") | tonumber / 1000) else tonumber end`. Round the final sum with `| round`.
 - **Memory unit conversion**: Memory from `status.allocatable` is in Ki. Convert to GiB by dividing by 1048576 and round the result.
 - **Operator detection via CRDs**: Detect operators via CRD existence (`oc get crd <crd-name>`) rather than CSV listing (`oc get csv -A | grep`). CSV listing requires `operators.coreos.com` read permissions in the ClusterRole, which the installer may not have. CRD checks work with the existing `apiextensions.k8s.io` permissions.
-- **GPU taint reporting**: If the quickstart uses GPUs, report detected NoSchedule taint keys on GPU nodes so users get early visibility into potential scheduling issues.
+- **GPU taint reporting**: If the quickstart uses GPUs, report detected NoSchedule taint keys on GPU nodes so users get early visibility into potential scheduling issues. Compare the detected keys against the chart's default toleration key (usually `nvidia.com/gpu`) and warn if they differ — this is a common cause of model pods stuck in Pending with no error message.
 
 **`install.sh`** — Must:
 - Create the target namespace if it doesn't exist
 - Invoke the existing deployment mechanism (helm install, make install, apply manifests, etc.)
 - NOT create RBAC — the ClusterRole already covers all namespaces
+- **Helm values must include all conditional resource keys**: If the quickstart's Helm charts conditionally create resources (e.g., Namespaces, Subscriptions) based on `enabled` flags in values, the generated values file MUST include those keys so that the disable-existing-operators logic can find and set them to `enabled: false`. Without this, Helm renders templates using the chart's default `enabled: true` values and attempts to manage resources that already exist on the cluster, causing "invalid ownership metadata" errors. Mirror the structure from the chart's `values.yaml` or the quickstart's values template file — only the keys and `enabled: true` entries are needed, not the full configuration (channels, versions, etc.), since those fall through to chart defaults via Helm's values merge.
+- **Use `--set-string` for user-supplied string parameters, and escape commas**: Any parameter whose value is free text — names, descriptions, labels, org/display names (e.g. `organization.name="Red Hat"`) — must be passed with `--set-string`, not `--set`. `--set` runs type coercion that turns values like `true`, `123`, or `1.2.3` into bools/numbers and mangles them; `--set-string` forces the value to stay a string. More importantly, Helm treats commas as multi-value delimiters inside a single `--set`/`--set-string` argument, so a value containing a comma (e.g. `"Red Hat, Inc."`) is split into bogus extra assignments and the install fails. Backslash-escape every literal comma in the value before building the flag: `value="${value//,/\\,}"`. Always quote the whole `key=value` token so shell word-splitting doesn't break on spaces. Prefer a generated values file (`-f values.yaml`) for anything complex or multi-line — it sidesteps `--set` parsing entirely — and reserve `--set-string` for a handful of scalar overrides. Example:
+  ```bash
+  # Escape commas Helm would treat as --set delimiters, then force string typing.
+  set_string_arg() {
+    local key="$1" value="$2"
+    value="${value//,/\\,}"       # escape literal commas
+    printf -- '--set-string\n%s=%s\n' "$key" "$value"
+  }
+  helm_args=()
+  if [[ -n "${ORGANIZATION_NAME:-}" ]]; then
+    mapfile -t _a < <(set_string_arg "organization.name" "$ORGANIZATION_NAME")
+    helm_args+=("${_a[@]}")
+  fi
+  helm upgrade --install "$RELEASE" ./chart --namespace "$TARGET_NAMESPACE" "${helm_args[@]}"
+  ```
+  Build Helm flags as a bash array (`helm_args=()`), never as a single space-joined string — a string re-introduces the word-splitting bug that quoting was meant to prevent.
 
-**GPU taint auto-detection (for GPU quickstarts):** If the quickstart deploys GPU workloads, add a `detect_gpu_tolerations` function that queries GPU nodes for NoSchedule taint keys and builds a JSON array of toleration objects. Fall back to `nvidia.com/gpu` if no taints are found. Accept an override via `GPU_TOLERATIONS` env var. Convert the JSON to Helm `--set` flags using indexed notation (e.g., `--set gpuTolerations[0].key=nvidia.com/gpu --set gpuTolerations[0].effect=NoSchedule --set gpuTolerations[0].operator=Exists`).
+**GPU taint auto-detection (for GPU quickstarts):** Charts commonly hardcode a default toleration key (e.g., `nvidia.com/gpu`) in their `values.yaml`, but real clusters frequently use different taint keys depending on the instance type or provisioning tool (e.g., `g6e-gpu` on AWS g6e instances, `gpu-node` from custom taints). If the installer doesn't detect and override these at install time, GPU workloads will stay in Pending state with no obvious error — the pods simply can't be scheduled because they don't tolerate the actual node taint.
+
+If the quickstart deploys GPU workloads:
+1. **Discover actual taint keys**: Query GPU nodes for NoSchedule taint keys: `oc get nodes -o json | jq -r '[.items[] | select(.status.allocatable["nvidia.com/gpu"] // "0" | tonumber > 0) | .spec.taints[]? | select(.effect == "NoSchedule") | .key] | unique | .[]'`
+2. **Find ALL toleration paths in the chart**: Search the chart's `values.yaml` and templates for every place tolerations are defined — model specs, hardware profiles, worker sets, etc. Each path needs its own `--set` override. Missing even one path means that resource gets the wrong toleration and won't schedule.
+3. **Build indexed `--set` overrides**: For each taint key and each toleration path, emit `--set <path>.tolerations[N].key=<key> --set <path>.tolerations[N].effect=NoSchedule --set <path>.tolerations[N].operator=Exists`
+4. **Fall back gracefully**: If no GPU-specific taints are detected (nodes have GPUs but no taints), skip the override and let chart defaults apply.
+5. **Accept manual override**: Support a `GPU_TOLERATIONS` env var so users can bypass auto-detection when needed.
 
 **`uninstall.sh`** — Must handle both modes:
 - `delete-all`: Remove everything including PVCs and namespace
@@ -191,7 +224,7 @@ Using the deploy template, adapt:
 **Important patterns for deploy.sh:**
 
 - **GPU taint override prompt**: If the quickstart uses GPUs, add an interactive prompt in the `install` case for GPU taint key override. Allow comma-separated keys or auto-detect. Convert keys to a JSON toleration array and pass as `GPU_TOLERATIONS` env var.
-- **Shell compatibility**: Do not use bash4-only syntax like `${VAR,,}` for case conversion. Use explicit `== "y" || == "Y"` comparisons instead, since deploy.sh may be run from zsh or other POSIX-compatible shells.
+- **Shell compatibility**: `deploy.sh` runs on the engineer's workstation (macOS Bash 3.2, Linux, or zsh). Follow the shell compatibility rules in Non-Negotiable Standard #6 — no Bash 4+ syntax. Use `tr` for case conversion and explicit comparisons (`== "y" || == "Y"`) instead of `${VAR,,}`.
 
 ### Step 9: Verify
 
@@ -202,6 +235,8 @@ Guide the engineer through testing:
 3. "Run `./installer/deploy.sh status <namespace>` to test status reporting"
 4. "Verify the termination message: `oc get job <job-name> -n default -o jsonpath='{.metadata.annotations.{{QUICKSTART_NAME}}-installer/termination-message}'`"
 5. "Verify the log ConfigMap: `oc get configmap -n default -l app={{QUICKSTART_NAME}}-installer`"
+
+**Manifest sync**: If testing reveals that the installer needs different RBAC permissions than originally generated (e.g., upgrading from a scoped ClusterRole to `cluster-admin` due to RBAC escalation errors from Helm charts that create ClusterRoleBindings to privileged roles), update the `deployment.installer.rbac` section in `quickstart-manifest.yaml` to match. The manifest describes what the installer needs — if `deploy.sh` changes, the manifest must reflect those changes. Re-validate with the JSON schema after any manifest edits.
 
 ## Output Rules
 
