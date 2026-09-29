@@ -191,10 +191,8 @@ deployment:
     rbac:
       serviceAccount:
         name: "peoplemesh-installer"
-        namespace: "default"
-      defaultNamespaceRole:
+      jobNamespaceRole:
         name: "peoplemesh-installer"
-        namespace: "default"
         rules:
           - apiGroups: [""]
             resources: ["pods", "configmaps"]
@@ -202,16 +200,14 @@ deployment:
           - apiGroups: ["batch"]
             resources: ["jobs"]
             verbs: ["get", "list", "watch"]
-      defaultNamespaceRoleBinding:
+      jobNamespaceRoleBinding:
         name: "peoplemesh-installer"
-        namespace: "default"
         roleRef:
           kind: "Role"
           name: "peoplemesh-installer"
         subjects:
           - kind: "ServiceAccount"
             name: "peoplemesh-installer"
-            namespace: "default"
       clusterRole:
         name: "peoplemesh-installer-${TARGET_NAMESPACE}"
         rules:
@@ -262,7 +258,6 @@ deployment:
         subjects:
           - kind: "ServiceAccount"
             name: "peoplemesh-installer"
-            namespace: "default"
   defaultNamespace: "peoplemesh-quickstart"
   quickstartResources:
     namespaceScoped:

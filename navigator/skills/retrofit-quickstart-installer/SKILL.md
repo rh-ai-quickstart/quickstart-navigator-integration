@@ -33,10 +33,10 @@ installer/
 Every installer MUST implement these patterns exactly. Do not skip or simplify them:
 
 1. **Termination messages** — Written to `/dev/termination-log` AND as a Job annotation (`peoplemesh-installer/termination-message`) via the EXIT trap
-2. **Log ConfigMap** — Full output persisted in `default` namespace with 7-day TTL label, capped at 50KB
+2. **Log ConfigMap** — Full output persisted in the installer Job's own namespace (self-detected at runtime from the pod's ServiceAccount token into `_SELF_NAMESPACE`, falling back to `default`) with 7-day TTL label, capped at 50KB. Never hardcode `default` here — the Job may run in any namespace Navigator chooses.
 3. **EXIT trap ordering** — Close tee pipes, flush, write termination message + Job annotation, run cleanup, write log ConfigMap LAST
 4. **Job polling** — deploy.sh must poll for BOTH Complete and Failed conditions (never use `oc wait --for=condition=complete` alone — it hangs on failure)
-5. **RBAC model** — deploy.sh creates all RBAC (SA + Role + RoleBinding in default, ClusterRole + ClusterRoleBinding). Installer uses ClusterRole permissions. deploy.sh cleans up all RBAC after Job completes.
+5. **RBAC model** — deploy.sh (the local-dev Navigator proxy) creates all RBAC (SA + Role + RoleBinding in the Job's namespace, plus ClusterRole + ClusterRoleBinding). Installer uses ClusterRole permissions. deploy.sh cleans up all RBAC after Job completes. The Job's namespace is `default` under deploy.sh, but Navigator chooses it in production — so do NOT hardcode it in `entrypoint.sh` (use `_SELF_NAMESPACE`) or in the manifest `rbac` block (omit the `namespace` fields on `serviceAccount`, `jobNamespaceRole`, `jobNamespaceRoleBinding`, and their subjects; Navigator fills them in at deploy time).
 6. **Shell compatibility** — Client-side scripts (`deploy.sh`, `build.sh`) run on the engineer's workstation, which may be macOS (Bash 3.2), Linux, or zsh. These scripts MUST use only POSIX-compatible and Bash 3.x-compatible syntax. Container-side scripts (`entrypoint.sh`, `lib/*.sh`) run inside the UBI9 container (Bash 5) and may use modern Bash features. Prohibited constructs in client-side scripts (with alternatives):
    | Bash 4+ construct | Alternative |
    |---|---|
@@ -108,6 +108,7 @@ Using the entrypoint template as the base, generate the entrypoint adapted to th
 **Do NOT change:**
 - The termination message state variables and functions
 - The tee/log file setup
+- The `_SELF_NAMESPACE` self-detection (installer's own namespace for log ConfigMap + Job annotation)
 - The EXIT trap and its ordering
 - The `write_log_configmap`, `write_termination_message` functions
 - The JSON output format
@@ -240,8 +241,8 @@ Guide the engineer through testing:
 1. "Run `./installer/build.sh push` to build and push the installer image"
 2. "Run `./installer/deploy.sh check_pre_reqs <namespace>` to test prerequisites checking"
 3. "Run `./installer/deploy.sh status <namespace>` to test status reporting"
-4. "Verify the termination message: `oc get job <job-name> -n default -o jsonpath='{.metadata.annotations.{{QUICKSTART_NAME}}-installer/termination-message}'`"
-5. "Verify the log ConfigMap: `oc get configmap -n default -l app={{QUICKSTART_NAME}}-installer`"
+4. "Verify the termination message: `oc get job <job-name> -n default -o jsonpath='{.metadata.annotations.{{QUICKSTART_NAME}}-installer/termination-message}'`" (deploy.sh runs the Job in `default`; use the Job's actual namespace)
+5. "Verify the log ConfigMap: `oc get configmap -n default -l app={{QUICKSTART_NAME}}-installer`" (same — `default` under deploy.sh, otherwise the Job's namespace)
 
 **Manifest sync**: If testing reveals that the installer needs different RBAC permissions than originally generated (e.g., upgrading from a scoped ClusterRole to `cluster-admin` due to RBAC escalation errors from Helm charts that create ClusterRoleBindings to privileged roles), update the `deployment.installer.rbac` section in `quickstart-manifest.yaml` to match. The manifest describes what the installer needs — if `deploy.sh` changes, the manifest must reflect those changes. Re-validate with the JSON schema after any manifest edits.
 

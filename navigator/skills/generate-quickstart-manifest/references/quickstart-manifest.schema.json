@@ -630,36 +630,33 @@
       "properties": {
         "serviceAccount": {
           "type": "object",
-          "description": "ServiceAccount for the installer Job.",
-          "required": ["name", "namespace"],
+          "description": "ServiceAccount for the installer Job. Created in the Job's namespace, which the platform (Navigator) chooses at deploy time.",
+          "required": ["name"],
           "additionalProperties": false,
           "properties": {
-            "name": { "type": "string" },
-            "namespace": { "type": "string" }
+            "name": { "type": "string" }
           }
         },
-        "defaultNamespaceRole": {
+        "jobNamespaceRole": {
           "type": "object",
-          "description": "Role in the default namespace for the installer pod to inspect its own environment.",
-          "required": ["name", "namespace", "rules"],
+          "description": "Role in the installer Job's namespace, for the installer pod to inspect its own environment.",
+          "required": ["name", "rules"],
           "additionalProperties": false,
           "properties": {
             "name": { "type": "string" },
-            "namespace": { "type": "string" },
             "rules": {
               "type": "array",
               "items": { "$ref": "#/$defs/rbacRule" }
             }
           }
         },
-        "defaultNamespaceRoleBinding": {
+        "jobNamespaceRoleBinding": {
           "type": "object",
-          "description": "RoleBinding in the default namespace.",
-          "required": ["name", "namespace", "roleRef", "subjects"],
+          "description": "RoleBinding in the installer Job's namespace.",
+          "required": ["name", "roleRef", "subjects"],
           "additionalProperties": false,
           "properties": {
             "name": { "type": "string" },
-            "namespace": { "type": "string" },
             "roleRef": {
               "$ref": "#/$defs/rbacRef"
             },
@@ -725,7 +722,7 @@
     },
     "rbacSubject": {
       "type": "object",
-      "description": "RBAC subject (ServiceAccount, User, or Group).",
+      "description": "RBAC subject (ServiceAccount, User, or Group). The subject namespace is not specified here; the platform (Navigator) sets it to the Job's namespace at deploy time.",
       "required": ["kind", "name"],
       "additionalProperties": false,
       "properties": {
@@ -737,10 +734,6 @@
         "name": {
           "type": "string",
           "description": "Subject name."
-        },
-        "namespace": {
-          "type": "string",
-          "description": "Subject namespace (required for ServiceAccount)."
         }
       }
     },
@@ -788,6 +781,10 @@
           "type": "string",
           "enum": ["string", "boolean", "integer", "password"],
           "description": "Parameter data type."
+        },
+        "envVar": {
+          "type": "string",
+          "description": "Name of the environment variable the installer expects this parameter's value in (e.g., 'ADMIN_PASSWORD'). If omitted, the operator derives it as 'PARAM_' + the parameter name uppercased with each run of non-alphanumeric characters replaced by a single underscore (e.g., 'ollama.gpu.enabled' becomes 'PARAM_OLLAMA_GPU_ENABLED')."
         },
         "required": {
           "type": "boolean",

@@ -136,6 +136,7 @@ Based on everything discovered about the quickstart's resource types, automatica
    - Add namespace-scoped permissions for each resource type found
    - Add `rbac.authorization.k8s.io` permissions if the quickstart creates Role/RoleBinding resources
 3. Present the generated RBAC rules and confirm with the engineer
+4. **Do NOT hardcode a namespace** for the `serviceAccount`, `jobNamespaceRole`, `jobNamespaceRoleBinding`, or their subjects. Name these resources only — the installer Job's namespace is chosen by the platform (Navigator) at deploy time, the installer self-detects it at runtime, and Navigator fills in the namespace on these resources when it creates them. (The `clusterRole`/`clusterRoleBinding` are cluster-scoped and take no namespace.)
 
 ### Step 8: Interview — Parameters
 
