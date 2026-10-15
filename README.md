@@ -161,6 +161,7 @@ These patterns have caused issues in real quickstart deployments:
 
 - **Job name exceeds 63 characters** — Kubernetes labels are capped at 63 chars. Long quickstart names combined with action names like `uninstall-delete-all` and a full Unix timestamp can exceed this. The deploy template uses `{{SHORT_NAME}}` (max ~20 chars) to keep names short.
 - **grep exits with code 1 under pipefail** — `grep` returns exit code 1 when no lines match. Under `set -euo pipefail`, this kills the script. Wrap with `{ grep PATTERN || true; }`.
+- **`cmd | grep -q` fails intermittently under pipefail** — `grep -q` (also `head`, `grep -m`) exits on the first match. If `cmd` writes again, it gets SIGPIPE (exit 141) and pipefail fails the pipeline despite the match. A real installer's `oc get sc --no-headers 2>/dev/null | grep -q .` falsely reported "No storage classes found" on about 1 in 8 runs. Capture output first (`SC_LIST=$(oc get storageclass -o name 2>&1)`), then test the variable. Report query errors separately from "none found".
 - **CPU reported in millicores** — Node allocatable CPU may be `8000m` instead of `8`. Always handle both formats in jq.
 - **Operator detection needs extra RBAC** — `oc get csv -A | grep` requires `operators.coreos.com` permissions. Detect operators via CRD existence instead (`oc get crd <crd-name>`).
 - **GPU pods fail to schedule** — Cluster admins use custom taint keys on GPU nodes (not just `nvidia.com/gpu`). Auto-detect taint keys and let users override.

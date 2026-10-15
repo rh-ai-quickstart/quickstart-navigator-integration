@@ -120,14 +120,29 @@ For each supported action, create a lib script that wraps the existing deploymen
 **`check_pre_reqs.sh`** — Must check:
 - OpenShift version (if minimum is specified)
 - Required operators (installed and healthy)
-- Storage classes (correct access modes available)
+- Storage classes (at least one exists; see the storage class pattern below)
 - Node resources (sufficient CPU/memory)
 - Required CRDs
 - Target namespace availability — if the installer owns the namespace lifecycle, treat an *existing* target namespace as a prerequisite failure (see the namespace collision policy under `install.sh`). This makes INSTALL abort fast, and makes a standalone `check_pre_reqs` run flag the collision before the user attempts an install.
 
-Use `oc` commands with `2>/dev/null || true` to handle missing resources gracefully under `set -euo pipefail`.
+Use `2>/dev/null || true` only where a missing resource is a legitimate answer (e.g. `oc get crd <name>` to detect an operator). When a check concludes "X does not exist", tell a failed query apart from an empty result. Otherwise an API, RBAC or network error turns into a false "missing" with no clue in the logs.
 
 **Important patterns for check_pre_reqs.sh:**
+
+- **Capture `oc` output before testing it; never pipe `oc` into `grep -q` (or `head`) under pipefail**: `grep -q` exits on the first match. If `oc` writes again after that, it gets SIGPIPE (exit 141), and `pipefail` makes the whole pipeline fail even though grep matched. The result is an intermittent false negative: identical runs on an unchanged cluster disagree, and `2>/dev/null` hides the evidence. This happened in a real installer: `if ! oc get sc --no-headers 2>/dev/null | grep -q .` reported "No storage classes found" on roughly 1 in 8 runs on a cluster with two storage classes. Save the output in a variable, then test the variable:
+  ```bash
+  # BAD — racy under pipefail, and errors look like "none found"
+  if ! oc get sc --no-headers 2>/dev/null | grep -q .; then missing+=("No storage classes found."); fi
+
+  # GOOD
+  if ! SC_LIST=$(oc get storageclass -o name 2>&1); then
+    missing+=("Unable to list storage classes: ${SC_LIST}")
+  elif [[ -z "$SC_LIST" ]]; then
+    missing+=("No storage classes found. At least one ReadWriteOnce storage class is required.")
+  fi
+  ```
+  The same applies outside prereqs, e.g. `helm list | grep -q <release>` in `uninstall.sh`: use `[[ "$(helm list -n "$NS" -q 2>/dev/null)" == *<release>* ]]` instead.
+- **Storage class access modes aren't visible on the StorageClass**: `oc get sc` has no access-mode column, so grepping its output for `ReadWriteOnce`/`RWO` never matches. Access modes are decided per PVC by the provisioner, and every common block/file provisioner supports RWO. Checking that at least one storage class exists (pattern above) is enough for RWO. If the quickstart needs RWX, check for a provisioner known to support it (e.g. CephFS, NFS, `file.csi.azure.com`, `efs.csi.aws.com`) and say why in the failure message.
 
 - **CPU millicore handling**: Node allocatable CPU may be in millicores (e.g., `8000m`) or whole cores. Always handle both: `if test("m$") then (gsub("m$";"") | tonumber / 1000) else tonumber end`. Round the final sum with `| round`.
 - **Memory unit conversion**: Memory from `status.allocatable` is in Ki. Convert to GiB by dividing by 1048576 and round the result.
@@ -184,7 +199,7 @@ If the quickstart deploys GPU workloads:
 - Check application health endpoints
 - Work for both installed and uninstalled states (report clean state if nothing exists)
 
-**grep + pipefail safety**: When using `grep` in pipelines under `set -euo pipefail`, wrap with `{ grep PATTERN || true; }` to prevent exit code 1 (no matches) from killing the script. Example: `failed=$(echo "$pods" | { grep -E "Error|CrashLoopBackOff" || true; } | wc -l | tr -d ' ')`
+**grep + pipefail safety**: When using `grep` in pipelines under `set -euo pipefail`, wrap with `{ grep PATTERN || true; }` to prevent exit code 1 (no matches) from killing the script. Example: `failed=$(echo "$pods" | { grep -E "Error|CrashLoopBackOff" || true; } | wc -l | tr -d ' ')`. The opposite problem applies to readers that exit early (`grep -q`, `grep -m`, `head`): under pipefail, the writer can die from SIGPIPE and fail the pipeline even when the match succeeded. Don't use early-exit readers on live command output in a condition; capture the output first (see the check_pre_reqs.sh patterns).
 
 **`upgrade.sh`** — If unsupported, create a stub that sources nothing and defines no functions (the entrypoint will reject UPGRADE before calling anything).
 
